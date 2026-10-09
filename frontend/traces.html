@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>xray-trace-dashboard | API Trace Monitor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #090c10;
+      --surface:  #0f1318;
+      --surface2: #131820;
+      --border:   #1c2230;
+      --border2:  #252d3d;
+      --text:     #cdd9e5;
+      --muted:    #4a5568;
+      --muted2:   #64748b;
+      --green:    #3fb950;
+      --red:      #f87171;
+      --orange:   #fb923c;
+      --blue:     #60a5fa;
+      --purple:   #c084fc;
+      --cyan:     #22d3a0;
+      --mono:     'JetBrains Mono', 'Fira Code', 'SF Mono', 'Consolas', monospace;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      font-size: 14px;
+      overflow: hidden;
+    }
+
+    /* ── Layout ───────────────────────────────────────────────────────── */
+    #app {
+      display: grid;
+      grid-template-rows: auto auto auto 1fr 1fr;
+      height: 100vh;
+      padding: 12px 16px 10px;
+      gap: 10px;
+    }
+
+    /* ── Header ───────────────────────────────────────────────────────── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 10px;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo {
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--muted2);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .logo-sep { color: var(--border2); margin: 0 4px; }
+
+    .header-title {
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--blue);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    /* ── Env switcher ─────────────────────────────────────────────────── */
+    .env-switcher {
+      display: flex;
+      gap: 2px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 3px;
+    }
+
+    .env-btn {
+      padding: 3px 16px;
+      border-radius: 4px;
+      border: none;
+      background: transparent;
+      color: var(--muted2);
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      transition: background 0.12s, color 0.12s;
+    }
+
+    .env-btn:hover { color: var(--text); background: var(--border); }
+    .env-btn.active-dev   { background: rgba(96,165,250,0.15); color: var(--blue); }
+    .env-btn.active-stage { background: rgba(63,185,80,0.15);  color: var(--green); }
+    .env-btn.active-prod  { background: rgba(248,113,113,0.15); color: var(--red); }
+
+    /* ── Header right ─────────────────────────────────────────────────── */
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+
+    #clock {
+      font-family: var(--mono);
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--cyan);
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.05em;
+    }
+
+    .live-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--red);
+      letter-spacing: 0.08em;
+    }
+
+    .live-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--red);
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.35; transform: scale(0.7); }
+    }
+
+    /* ── Error banner ─────────────────────────────────────────────────── */
+    #error-banner {
+      display: none;
+      background: rgba(248,113,113,0.08);
+      border: 1px solid rgba(248,113,113,0.3);
+      border-radius: 4px;
+      padding: 5px 12px;
+      color: var(--red);
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+
+    /* ── Summary Cards ────────────────────────────────────────────────── */
+    #cards {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 8px;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 14px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: var(--card-accent, var(--border2));
+      border-radius: 6px 6px 0 0;
+    }
+
+    .card.accent-blue::before   { --card-accent: var(--blue); }
+    .card.accent-red::before    { --card-accent: var(--red); }
+    .card.accent-orange::before { --card-accent: var(--orange); }
+    .card.accent-green::before  { --card-accent: var(--green); }
+    .card.accent-purple::before { --card-accent: var(--purple); }
+    .card.accent-cyan::before   { --card-accent: var(--cyan); }
+
+    .card-value {
+      font-family: var(--mono);
+      font-size: 28px;
+      font-weight: 700;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.02em;
+      margin-top: 4px;
+    }
+
+    .card-value.blue   { color: var(--blue); }
+    .card-value.red    { color: var(--red); }
+    .card-value.orange { color: var(--orange); }
+    .card-value.green  { color: var(--green); }
+    .card-value.purple { color: var(--purple); }
+    .card-value.cyan   { color: var(--cyan); }
+
+    .card-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--muted2);
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      margin-top: 4px;
+    }
+
+    .card-sub {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--muted);
+      letter-spacing: 0.03em;
+      margin-top: 1px;
+    }
+
+    /* ── Panel rows ───────────────────────────────────────────────────── */
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      min-height: 0;
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .panel-title {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--muted2);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 8px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .panel-title::before {
+      content: '';
+      display: inline-block;
+      width: 3px;
+      height: 10px;
+      background: var(--panel-accent, var(--border2));
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+
+    .panel.accent-blue   .panel-title::before { --panel-accent: var(--blue); }
+    .panel.accent-green  .panel-title::before { --panel-accent: var(--green); }
+    .panel.accent-purple .panel-title::before { --panel-accent: var(--purple); }
+    .panel.accent-orange .panel-title::before { --panel-accent: var(--orange); }
+
+    .chart-wrap {
+      position: relative;
+      flex: 1;
+      min-height: 0;
+    }
+
+    canvas { display: block; }
+
+    /* ── Endpoint table ───────────────────────────────────────────────── */
+    .table-scroll {
+      flex: 1;
+      overflow-y: auto;
+      min-height: 0;
+    }
+
+    .table-scroll::-webkit-scrollbar { width: 4px; }
+    .table-scroll::-webkit-scrollbar-track { background: transparent; }
+    .table-scroll::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    thead th {
+      text-align: left;
+      padding: 3px 8px;
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      background: var(--surface);
+      z-index: 1;
+    }
+
+    tbody td {
+      padding: 5px 8px;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 220px;
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+
+    tbody tr:nth-child(even) { background: var(--surface2); }
+    tbody tr.row-warn { background: rgba(248,113,113,0.06) !important; }
+    tbody tr:hover { background: rgba(255,255,255,0.04) !important; }
+
+    .badge {
+      display: inline-block;
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
+
+    .badge-GET    { background: rgba(96,165,250,0.12);  color: var(--blue); }
+    .badge-POST   { background: rgba(63,185,80,0.12);   color: var(--green); }
+    .badge-PUT    { background: rgba(251,146,60,0.12);  color: var(--orange); }
+    .badge-DELETE { background: rgba(248,113,113,0.12); color: var(--red); }
+    .badge-PATCH  { background: rgba(192,132,252,0.12); color: var(--purple); }
+
+    /* ── Slowest traces ───────────────────────────────────────────────── */
+    .trace-list {
+      flex: 1;
+      overflow-y: auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .trace-list::-webkit-scrollbar { width: 4px; }
+    .trace-list::-webkit-scrollbar-track { background: transparent; }
+    .trace-list::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+    .trace-item {
+      display: grid;
+      grid-template-columns: auto 1fr auto auto;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 8px;
+      border-radius: 4px;
+      background: var(--surface2);
+      border: 1px solid transparent;
+      min-width: 0;
+      transition: border-color 0.1s;
+    }
+
+    .trace-item:hover { border-color: var(--border2); }
+
+    .trace-item .path {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--muted2);
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+
+    .trace-duration {
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    .trace-duration.slow { color: var(--red); }
+    .trace-duration.med  { color: var(--orange); }
+    .trace-duration.ok   { color: var(--green); }
+
+    .status-5xx { color: var(--red);    font-family: var(--mono); font-size: 11px; font-weight: 700; }
+    .status-4xx { color: var(--orange); font-family: var(--mono); font-size: 11px; font-weight: 700; }
+    .status-ok  { color: var(--muted);  font-family: var(--mono); font-size: 11px; }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- Header -->
+  <header>
+    <div class="header-left">
+      <span class="logo">xray-trace-dashboard <span class="logo-sep">/</span></span>
+      <span class="header-title">API Trace Monitor</span>
+    </div>
+    <div class="env-switcher">
+      <button class="env-btn" data-env="dev"   onclick="switchEnv('dev')">dev</button>
+      <button class="env-btn" data-env="stage" onclick="switchEnv('stage')">stage</button>
+      <button class="env-btn" data-env="prod"  onclick="switchEnv('prod')">prod</button>
+    </div>
+    <div class="header-right">
+      <span id="clock">--:--:--</span>
+      <div class="live-badge"><div class="live-dot"></div>live · 10s</div>
+    </div>
+  </header>
+
+  <!-- Error banner -->
+  <div id="error-banner"></div>
+
+  <!-- Summary Cards -->
+  <div id="cards">
+    <div class="card accent-blue">
+      <div class="card-value blue" id="card-total">—</div>
+      <div class="card-label">Traces</div>
+      <div class="card-sub">last 5 min</div>
+    </div>
+    <div class="card accent-cyan">
+      <div class="card-value cyan" id="card-rpm">—</div>
+      <div class="card-label">Req / min</div>
+      <div class="card-sub">5 min avg</div>
+    </div>
+    <div class="card accent-red">
+      <div class="card-value red" id="card-errors">—</div>
+      <div class="card-label">Errors</div>
+      <div class="card-sub">last 5 min</div>
+    </div>
+    <div class="card accent-orange">
+      <div class="card-value orange" id="card-error-rate">—</div>
+      <div class="card-label">Error Rate</div>
+      <div class="card-sub" id="card-error-sub">of total</div>
+    </div>
+    <div class="card accent-green">
+      <div class="card-value green" id="card-avg">—</div>
+      <div class="card-label">Avg Response</div>
+      <div class="card-sub">mean latency</div>
+    </div>
+    <div class="card accent-purple">
+      <div class="card-value purple" id="card-p95">—</div>
+      <div class="card-label">P95 Response</div>
+      <div class="card-sub">95th pctile</div>
+    </div>
+    <div class="card">
+      <div class="card-value" style="color:var(--muted2)" id="card-p99">—</div>
+      <div class="card-label">P99 Response</div>
+      <div class="card-sub">99th pctile</div>
+    </div>
+  </div>
+
+  <!-- Row 1: Scatter | Endpoint Table -->
+  <div class="row">
+    <div class="panel accent-blue">
+      <div class="panel-title">Response Time Scatter &nbsp;—&nbsp; last 5 min</div>
+      <div class="chart-wrap"><canvas id="chart-scatter"></canvas></div>
+    </div>
+    <div class="panel accent-green">
+      <div class="panel-title">Endpoints &nbsp;—&nbsp; sorted by p95</div>
+      <div class="table-scroll">
+        <table id="endpoint-table">
+          <thead>
+            <tr>
+              <th>Method</th>
+              <th style="min-width:160px">Path</th>
+              <th>Calls</th>
+              <th>P50</th>
+              <th>P95</th>
+              <th>P99</th>
+              <th>Err%</th>
+            </tr>
+          </thead>
+          <tbody id="endpoint-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Row 2: Histogram | Slowest Traces -->
+  <div class="row">
+    <div class="panel accent-orange">
+      <div class="panel-title">Response Time Distribution</div>
+      <div class="chart-wrap"><canvas id="chart-histogram"></canvas></div>
+    </div>
+    <div class="panel accent-purple">
+      <div class="panel-title">Slowest Traces</div>
+      <div class="trace-list" id="trace-list"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // ── Chart.js globals ──────────────────────────────────────────────────
+  Chart.defaults.color = '#4a5568';
+  Chart.defaults.borderColor = '#1c2230';
+  Chart.defaults.font.family = "'JetBrains Mono', 'Fira Code', monospace";
+  Chart.defaults.font.size = 11;
+
+  const METHOD_COLORS = {
+    GET:    '#60a5fa',
+    POST:   '#3fb950',
+    PUT:    '#fb923c',
+    DELETE: '#f87171',
+    PATCH:  '#c084fc',
+  };
+
+  function methodColor(m) { return METHOD_COLORS[m] || '#64748b'; }
+
+  let scatterChart = null;
+  let histChart    = null;
+
+  // ── Utilities ─────────────────────────────────────────────────────────
+  function fmtMs(ms) {
+    if (ms === null || ms === undefined) return '—';
+    if (ms >= 1000) return (ms / 1000).toFixed(2) + 's';
+    return Math.round(ms) + 'ms';
+  }
+
+  function fmtPct(ratio) { return (ratio * 100).toFixed(1) + '%'; }
+  function nowHHMMSS()   { return new Date().toLocaleTimeString('en-GB', { hour12: false }); }
+
+  // ── Clock ──────────────────────────────────────────────────────────────
+  function tickClock() { document.getElementById('clock').textContent = nowHHMMSS(); }
+  tickClock();
+  setInterval(tickClock, 1000);
+
+  // ── Cards ──────────────────────────────────────────────────────────────
+  function updateCards(data) {
+    const rpm     = (data.totalTraces / 5).toFixed(1);
+    const errRate = data.totalTraces > 0 ? fmtPct(data.errorCount / data.totalTraces) : '0.0%';
+    const allDurs = data.recentTraces.map(t => t.durationMs);
+    const p99     = allDurs.length
+      ? allDurs.slice().sort((a,b)=>a-b)[Math.floor(0.99*(allDurs.length-1))]
+      : 0;
+
+    document.getElementById('card-total').textContent      = data.totalTraces.toLocaleString();
+    document.getElementById('card-rpm').textContent        = rpm;
+    document.getElementById('card-errors').textContent     = data.errorCount.toLocaleString();
+    document.getElementById('card-error-rate').textContent = errRate;
+    document.getElementById('card-avg').textContent        = fmtMs(data.globalAvgMs);
+    document.getElementById('card-p95').textContent        = fmtMs(data.globalP95Ms);
+    document.getElementById('card-p99').textContent        = fmtMs(p99);
+  }
+
+  // ── Scatter ────────────────────────────────────────────────────────────
+  function renderScatter(data) {
+    const refTime  = new Date(data.timestamp).getTime();
+    const byMethod = {};
+
+    for (const t of data.recentTraces) {
+      if (!byMethod[t.method]) byMethod[t.method] = [];
+      byMethod[t.method].push({
+        x: (refTime - new Date(t.timestamp).getTime()) / 1000,
+        y: t.durationMs,
+      });
+    }
+
+    const datasets = Object.entries(byMethod).map(([m, pts]) => ({
+      label: m,
+      data: pts,
+      backgroundColor: methodColor(m) + 'aa',
+      pointRadius: 3.5,
+      pointHoverRadius: 5,
+    }));
+
+    if (scatterChart) {
+      scatterChart.data.datasets = datasets;
+      scatterChart.update('none');
+    } else {
+      const ctx = document.getElementById('chart-scatter').getContext('2d');
+      scatterChart = new Chart(ctx, {
+        type: 'scatter',
+        data: { datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          plugins: {
+            legend: { position: 'top', labels: { boxWidth: 8, padding: 10, color: '#64748b' } },
+            tooltip: {
+              backgroundColor: '#0f1318',
+              borderColor: '#1c2230',
+              borderWidth: 1,
+              titleColor: '#cdd9e5',
+              bodyColor: '#64748b',
+              callbacks: {
+                label: (c) => ` ${c.dataset.label}  ${fmtMs(c.parsed.y)}  @ ${c.parsed.x.toFixed(0)}s ago`,
+              },
+            },
+          },
+          scales: {
+            x: {
+              reverse: true,
+              title: { display: true, text: 'seconds ago', color: '#4a5568' },
+              grid: { color: '#131820' },
+              ticks: { color: '#4a5568' },
+            },
+            y: {
+              title: { display: true, text: 'latency', color: '#4a5568' },
+              grid: { color: '#131820' },
+              ticks: { color: '#4a5568', callback: (v) => fmtMs(v) },
+              min: 0,
+            },
+          },
+        },
+      });
+    }
+  }
+
+  // ── Histogram ─────────────────────────────────────────────────────────
+  const HIST_COLORS = ['#22d3a0', '#3fb950', '#fb923c', '#f97316', '#f87171'];
+
+  function renderHistogram(data) {
+    const labels = data.histogram.map((b) => b.label);
+    const counts = data.histogram.map((b) => b.count);
+
+    if (histChart) {
+      histChart.data.datasets[0].data = counts;
+      histChart.update('none');
+    } else {
+      const ctx = document.getElementById('chart-histogram').getContext('2d');
+      histChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [{ data: counts, backgroundColor: HIST_COLORS, borderRadius: 3, borderSkipped: false }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: '#0f1318',
+              borderColor: '#1c2230',
+              borderWidth: 1,
+              titleColor: '#cdd9e5',
+              bodyColor: '#64748b',
+            },
+          },
+          scales: {
+            x: { grid: { display: false }, ticks: { color: '#4a5568' } },
+            y: { grid: { color: '#131820' }, ticks: { color: '#4a5568', precision: 0 }, beginAtZero: true },
+          },
+        },
+      });
+    }
+  }
+
+  // ── Endpoint table ─────────────────────────────────────────────────────
+  function renderEndpointTable(data) {
+    const tbody = document.getElementById('endpoint-tbody');
+    tbody.innerHTML = '';
+    for (const ep of data.endpoints) {
+      const tr = document.createElement('tr');
+      if (ep.p95Ms > 1000) tr.classList.add('row-warn');
+      const errColor = ep.errorRate > 0.05 ? 'var(--red)' : ep.errorRate > 0 ? 'var(--orange)' : 'var(--muted)';
+      tr.innerHTML = `
+        <td><span class="badge badge-${ep.method}">${ep.method}</span></td>
+        <td title="${ep.path}" style="color:var(--text)">${ep.path}</td>
+        <td style="color:var(--muted2)">${ep.count}</td>
+        <td>${fmtMs(ep.p50Ms)}</td>
+        <td style="color:var(--blue);font-weight:700">${fmtMs(ep.p95Ms)}</td>
+        <td style="color:var(--muted2)">${fmtMs(ep.p99Ms)}</td>
+        <td style="color:${errColor};font-weight:600">${fmtPct(ep.errorRate)}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+  }
+
+  // ── Slowest traces ─────────────────────────────────────────────────────
+  function renderSlowests(data) {
+    const container = document.getElementById('trace-list');
+    container.innerHTML = '';
+    for (const t of data.slowestTraces) {
+      const div = document.createElement('div');
+      div.className = 'trace-item';
+      const durClass  = t.durationMs >= 1000 ? 'slow' : t.durationMs >= 500 ? 'med' : 'ok';
+      const statusCls = t.statusCode >= 500 ? 'status-5xx' : t.statusCode >= 400 ? 'status-4xx' : 'status-ok';
+      div.innerHTML = `
+        <span class="badge badge-${t.method}">${t.method}</span>
+        <span class="path" title="${t.url}">${t.url}</span>
+        <span class="trace-duration ${durClass}">${fmtMs(t.durationMs)}</span>
+        <span class="${statusCls}">${t.statusCode || '—'}</span>
+      `;
+      container.appendChild(div);
+    }
+  }
+
+  // ── Main render ────────────────────────────────────────────────────────
+  function render(data) {
+    updateCards(data);
+    renderScatter(data);
+    renderHistogram(data);
+    renderEndpointTable(data);
+    renderSlowests(data);
+  }
+
+  // ── Env switcher ───────────────────────────────────────────────────────
+  let currentEnv = 'dev';
+
+  function switchEnv(env) {
+    if (env === currentEnv) return;
+    currentEnv = env;
+    lastGoodData = null;
+    if (scatterChart) { scatterChart.destroy(); scatterChart = null; }
+    if (histChart)    { histChart.destroy();    histChart = null;    }
+    setActiveEnvBtn(env);
+    fetchAndRender();
+  }
+
+  function setActiveEnvBtn(env) {
+    document.querySelectorAll('.env-btn').forEach((b) => b.classList.remove('active-dev','active-stage','active-prod'));
+    document.querySelector(`.env-btn[data-env="${env}"]`)?.classList.add(`active-${env}`);
+  }
+
+  // ── Fetch loop ─────────────────────────────────────────────────────────
+  let lastGoodData = null;
+
+  async function fetchAndRender() {
+    try {
+      const res = await fetch(`/api/traces?env=${currentEnv}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      lastGoodData = data;
+      document.getElementById('error-banner').style.display = 'none';
+      render(data);
+    } catch (err) {
+      console.error('Fetch error:', err);
+      const banner = document.getElementById('error-banner');
+      banner.style.display = 'block';
+      banner.textContent = `⚠  fetch failed at ${nowHHMMSS()} — ${err.message} · showing stale data`;
+      if (lastGoodData) render(lastGoodData);
+    }
+  }
+
+  setActiveEnvBtn(currentEnv);
+  fetchAndRender();
+  setInterval(fetchAndRender, 10_000);
+</script>
+</body>
+</html>
