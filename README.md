@@ -1,5 +1,8 @@
 # xray-trace-dashboard
 
+[![CI](https://github.com/manojkken/xray-trace-dashboard/actions/workflows/ci.yml/badge.svg)](https://github.com/manojkken/xray-trace-dashboard/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A self-contained local dashboard that queries AWS X-Ray in real time and visualises API performance across `dev`, `stage`, and `prod` environments.
 
 ![Dashboard overview](docs/screenshots/dashboard-overview.png)
